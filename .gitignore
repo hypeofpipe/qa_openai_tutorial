@@ -162,7 +162,10 @@ cython_debug/
 # Web Crawler
 # ignore everything, except for gitignore and script itself
 web_crawler/*
-!web_crawler/web_crawler.py
+!web_crawler/*.py
 
 # VSCode settings
 .vscode/
+
+# MacOS files
+.DS_Store
