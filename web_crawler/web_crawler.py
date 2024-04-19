@@ -196,5 +196,5 @@ class HyperlinkParser(HTMLParser):
         
 parser = HyperlinkParser()
 
-
-parser.crawl(full_url)
+if __name__ == '__main__':
+    parser.crawl(full_url)
