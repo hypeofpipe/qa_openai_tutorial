@@ -106,6 +106,7 @@ class QuestionAnswererV2:
         self.df = df
     # search function
     def strings_ranked_by_relatedness(
+        self,
         query: str,
         df: pd.DataFrame,
         relatedness_fn=lambda x, y: 1 - spatial.distance.cosine(x, y),
@@ -118,14 +119,14 @@ class QuestionAnswererV2:
         )
         query_embedding = query_embedding_response.data[0].embedding
         strings_and_relatednesses = [
-            (row["text"], relatedness_fn(query_embedding, row["embedding"]))
+            (row["text"], relatedness_fn(query_embedding, row["embeddings"]))
             for i, row in df.iterrows()
         ]
         strings_and_relatednesses.sort(key=lambda x: x[1], reverse=True)
         strings, relatednesses = zip(*strings_and_relatednesses)
         return strings[:top_n], relatednesses[:top_n]
     
-    def num_tokens(text: str, model: str = GPT_MODEL) -> int:
+    def num_tokens(self, text: str, model: str = GPT_MODEL) -> int:
         """Return the number of tokens in a string."""
         encoding = tiktoken.encoding_for_model(model)
         return len(encoding.encode(text))
@@ -135,14 +136,17 @@ class QuestionAnswererV2:
         incoming_question: str,
         df: pd.DataFrame,
         model: str,
-        token_budget: int
+        token_budget: int,
+        debug=False
     ) -> str:
-        strings = self.strings_ranked_by_relatedness(incoming_question, df)
+        strings = self.strings_ranked_by_relatedness(query=incoming_question, df=df)
         introduction = 'Use the below articles on law 3261 to answer the subsequent question. If the answer cannot be found in the data, write "Я не знайшов відповіді в матеріалах, до яких я маю доступ."'
         question = f"\n\nQuestion: {incoming_question}"
         message = introduction
         for string in strings:
             next_section = f'\n\nRelated data:\n"""\n{string}\n"""'
+            if(debug):
+                print('\nnext section: ', string)
             if (
                 self.num_tokens(message + next_section + question, model=model)
                 > token_budget
@@ -158,25 +162,27 @@ class QuestionAnswererV2:
     model: str = GPT_MODEL,
     token_budget: int = 4096 - 500,
     debug: bool = False,
+    temperature: int = 0.8,
     ) -> str:
         """Answers a query using GPT and a dataframe of relevant texts and embeddings."""
-        message = self.create_context(incoming_question=question, df=self.df, model=model, token_budget=token_budget)
+        df = self.df
+        message = self.create_context(incoming_question=question, df=df, model=model, token_budget=token_budget, debug=debug)
         messages = [
             {"role": "system", "content": "Ти відповідаєш на питання відносно законопроекту про мобілізацію."},
             {"role": "user", "content": message},
         ]
         if debug:
-            print(messages)
+            print(f"\nmessage: {message}\n")
         response = client.chat.completions.create(
             model=model,
             messages=messages,
-            temperature=0
+            temperature=temperature
         )
         response_message = response.choices[0].message.content
         return response_message
 
 if __name__ == "__main__":
-    questionAnswererV1 = QuestionAnswererV1()
+    # questionAnswererV1 = QuestionAnswererV1()
     questionAnswererV2 = QuestionAnswererV2()
 
 # V1.1 (used text-embedding-3-small):
@@ -225,4 +231,76 @@ if __name__ == "__main__":
     # print(questionAnswererV1.ask(question="Які зміни передбачає законопроект про мобілізацію?", debug=True))
         # response "Не можу відповісти на це питання. Недостатньо конкретної інформації про законопроект про мобілізацію. Будь ласка, задайте питання, яке більш конкретно вказує на зміни, які цей законопроект передбачає. Наприклад, "Які конкретні зміни вносить законопроект про мобілізацію щодо прав військовослужбовців та поліцейських на соціальний захист?" - this is much better
 # V2 
-    print(questionAnswererV2.ask(question="Які зміни передбачає законопроект про мобілізацію?", debug=True))
+    """
+    print(f"\nanswer: {questionAnswererV2.ask(question='Як проходить день?', debug=True)}")
+    response:
+        Я не знайшов відповіді в матеріалах, до яких я маю доступ.
+    """
+    """
+    print(f"\nanswer: {questionAnswererV2.ask(question='Які зміни передбачає законопроект про мобілізацію?')}")
+    response:
+        Даний законопроект про мобілізацію (№3261) передбачає такі зміни:
+
+        1. Розширення повноважень щодо мобілізації громадян для військової служби та інших завдань, пов'язаних з обороною країни.
+        2. Посилення відповідальності за ухилення від мобілізації та недостовірне подання даних про себе чи інших осіб.
+        3. Визначення переліку категорій громадян, які можуть бути мобілізовані, включаючи військовозобов'язаних та інших осіб.
+        4. Встановлення порядку та умов привлечення громадян до мобілізації.
+        5. Регулювання питань щодо відшкодування витрат громадян, які були мобілізовані.
+        6. Удосконалення механізмів контролю за проведенням мобілізації та виплатами громадянам.
+
+        Якщо потрібна додаткова інформація, будь ласка, звертайтеся.
+    """
+    """
+    print(questionAnswererV2.ask(question="Якщо я чоловік 23 років, чи по закону я зобовязаний служити?", debug=True))
+    response: Стаття 17 Закону України "Про загальнообов'язкове державне військове навчання і мобілізацію" вказує, що громадяни України чоловічої статі у віці від вісімнадцяти до шістдесяти п'яти років зобов'язані служити у Збройних Силах України. Таким чином, якщо вам 23 роки і ви громадянин України чоловічої статі, ви підпадаєте під це законодавство і можете бути зобов'язані служити у Збройних Силах України.
+    """
+    """
+    print(f"\nanswer: {questionAnswererV2.ask(question='Чи можуть мені бути надані консульскі послуги?')}")
+    response: Згідно зі статтею 13 Закону України "Про консульську службу" (№ 3261), консульські послуги надаються громадянам України та іноземним громадянам. Таким чином, як громадянину України, вам можуть бути надані консульські послуги у відповідності до законодавства.
+    """
+    """
+    print(f"\nanswer: {questionAnswererV2.ask(question='У мене три автівки, чи законопроект передбачає їх мобілізацію?')}")
+    response: Я не знайшов відповіді в матеріалах, до яких я маю доступ.
+    """
+    """
+    print(f"\nanswer: {questionAnswererV2.ask(question='Скільки заробляє військовослужбовець?')}")
+    response:
+    Згідно з статтею 4 Закону України "Про основи соціального захисту військовослужбовців та членів їх сімей" від 03.02.1995 року № 48/95-ВР, військовослужбовці мають право на державну соціальну допомогу у вигляді доплати до військової зарплати.
+
+    Згідно з информацією з інших джерел, наприклад, зарплата рядового військовослужбовця в Україні може складати приблизно 10 000-12 000 гривень на місяць, але точна сума може відрізнятися в залежності від рангу, посади та інших факторів.
+    """
+    """
+    print(f"\nanswer: {questionAnswererV2.ask(question='Який оклад військовослужбовця?', debug=True)}")
+    response:
+    Стаття 3 Закону України "Про загальнообов'язкове державне страхування осіб, які беруть участь у військових дії̆ або працюють у зоні проведення антитерористичної операції" вказує, що військовослужбовці, які беруть участь у військових діях або працюють у зоні проведення антитерористичної операції, зберігають право на збереження свого середньомісячного доходу (окладу) за місцем роботи перед відправленням на військову службу або роботу у зоні проведення антитерористичної операції. 
+
+    Таким чином, оклад військовослужбовця зберігається на рівні, якому він був до відправлення на військову службу або роботу у зоні проведення антитерористичної операції.
+    """
+    """
+    print(f"\nanswer: {questionAnswererV2.ask(question='Які вимоги до військовослужбовця?', debug=True)}")
+    response:
+    Стаття 10 Закону України "Про загальнообов'язкову військову службу та військовий обов'язок" (№ 3261) встановлює вимоги до військовослужбовців. Зокрема, військовослужбовці повинні мати відповідний стан здоров'я, підтверджений медичною комісією. Також вони повинні мати відповідну освіту або підготовку для виконання військової служби за спеціальністю.
+
+    Отже, вимоги до військовослужбовців включають фізичну придатність та наявність необхідних знань і навичок для виконання військових обов'язків.
+
+    Я не знайшов відповіді в матеріалах, до яких я маю доступ.
+    """
+    """
+    print(f"\nanswer: {questionAnswererV2.ask(question='Чи може військовослужбовець відмовитися від служби?', debug=True)}")
+    response:
+    Стаття 17 Закону України "Про загальнообов’язкове державне військове навчання та мобілізацію" (№3261) говорить про можливість відмови від проходження військової служби. Згідно з цією статтею, відповідно до закону, громадяни можуть бути визвані на військову службу за мобілізацією в разі загрози або воєнного стану. Тобто, військовослужбовець не може відмовитися від служби під час мобілізації згідно з цим законом.
+
+    Отже, відповідно до Закону №3261, військовослужбовець не може відмовитися від служби під час мобілізації.
+    """
+    """
+    print(f"\nanswer: {questionAnswererV2.ask(question='Коли військовослужбовець звільняється від виконання службових обовязків?', debug=True)}")
+    response:
+    
+    Згідно зі статтею 11 Закону України "Про мобілізаційну підготовку та мобілізацію" № 3261, військовослужбовець може бути звільнений від виконання службових обов'язків у наступних випадках:
+    1. Застосування законодавства про військовий стан або воєнний стан.
+    2. У разі смерті військовослужбовця.
+    3. При оголошенні війни або здійсненні військової агресії проти України.
+    4. З інших випадків, передбачених законодавством.
+
+    Якщо військовослужбовець звільнений від виконання службових обов'язків, це може бути внаслідок вищезазначених обставин або з інших причин, що передбачені законодавством.
+    """
