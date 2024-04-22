@@ -14,10 +14,11 @@ client = OpenAI(
 
 EMBEDDING_MODEL = 'text-embedding-3-small'
 GPT_MODEL = 'gpt-3.5-turbo'
+CURRENT_DIRECTORY = os.getcwd()
 
 class QuestionAnswererV1:
     def __init__(self):
-        df=pd.read_csv('processed/embeddings_v2.csv', index_col=0)
+        df=pd.read_csv(os.path.join(CURRENT_DIRECTORY, 'processed/embeddings_v2.csv'), index_col=0)
         df['embeddings'] = df['embeddings'].apply(eval).apply(np.array)
         
         self.df = df
@@ -73,19 +74,18 @@ class QuestionAnswererV1:
          question, max_len=max_len,
         )
         # If debug, print the raw model response
+        messages =[
+                    {"role": "system", "content": "You are helpful Q&A assistant, you will be provided with $CONTEXT. Based on the context, give response to the Question - as best as you can. If you can't give any response at all (like at all, this is your last resort) - say: \"Не можу відповісти на це питання.\" and explain why and what exact data you lack. Give example, why provided data is not enough. Suggest user to ask questions, that you can actually answer based on the context you've been provided with. Answer in Ukrainian."},
+                    {"role": "user", "content": f"$CONTEXT: {context}\n\n---\n\nQuestion: {question}\nAnswer:"}
+                 ]
         if debug:
-            print("Context:\n" + context)
-            print("\n\n")
-
+            print(messages)
         try:
             # Create a chat completion using the question and context
   
             response = client.chat.completions.create(
                 model=model,
-                messages=[
-                    {"role": "system", "content": "Дай відповідь, беручи під увагу $CONTEXT, який буде поданий нижче. Якщо на підставі контексту, ти не можеш надати відповідь - скажи \"Не можу відповісти на це питання.\""},
-                    {"role": "user", "content": f"$CONTEXT: {context}\n\n---\n\nПитання: {question}\nВідповідь:"}
-                 ],
+                messages=messages,
                  temperature=0,
                  max_tokens=max_tokens,
                  top_p=1,
@@ -100,7 +100,7 @@ class QuestionAnswererV1:
     
 class QuestionAnswererV2:
     def __init__(self):
-        df=pd.read_csv('processed/embeddings_v2.csv', index_col=0)
+        df=pd.read_csv(os.path.join(CURRENT_DIRECTORY, 'processed/embeddings_v2.csv'), index_col=0)
         df['embeddings'] = df['embeddings'].apply(eval).apply(np.array)
         
         self.df = df
@@ -132,14 +132,14 @@ class QuestionAnswererV2:
     
     def create_context(
         self,
-        query: str,
+        incoming_question: str,
         df: pd.DataFrame,
         model: str,
         token_budget: int
     ) -> str:
-        strings = self.strings_ranked_by_relatedness(query, df)
+        strings = self.strings_ranked_by_relatedness(incoming_question, df)
         introduction = 'Use the below articles on law 3261 to answer the subsequent question. If the answer cannot be found in the data, write "Я не знайшов відповіді в матеріалах, до яких я маю доступ."'
-        question = f"\n\nQuestion: {query}"
+        question = f"\n\nQuestion: {incoming_question}"
         message = introduction
         for string in strings:
             next_section = f'\n\nRelated data:\n"""\n{string}\n"""'
@@ -153,16 +153,15 @@ class QuestionAnswererV2:
         return message + question
     
     def ask(
-        self,
-    query: str,
-    df: pd.DataFrame,
+    self,
+    question: str,
     model: str = GPT_MODEL,
     token_budget: int = 4096 - 500,
-    print_message: bool = False,
+    debug: bool = False,
     ) -> str:
         """Answers a query using GPT and a dataframe of relevant texts and embeddings."""
-        message = self.query_message(query, df, model=model, token_budget=token_budget)
-        if print_message:
+        message = self.create_context(incoming_question=question, df=self.df, model=model, token_budget=token_budget)
+        if debug:
             print(message)
         messages = [
             {"role": "system", "content": "Ти відповідаєш на питання відносно законопроекту про мобілізацію."},
@@ -213,3 +212,15 @@ if __name__ == "__main__":
     # print(questionAnswererV1.ask(question="Коли військовослужбовець звільняється від виконання службових обовязків?", model="gpt-4", debug=True))
         # response "Військовослужбовець звільняється від виконання службових обов'язків у разі необхідності догляду за хворою дитиною віком до 14 років, яка потребує стаціонарного лікування. Звільнення від виконання службових обов'язків здійснюється із збереженням грошового забезпечення на весь період догляду за хворою дитиною."
 
+# V1.X - fixing querying to fix "I don't know" responses
+    # print(questionAnswererV1.ask(question="Як проходить день?", debug=True))
+        # response "Не можу відповісти на це питання." <- this is correct response, however question is not included...
+    # print(questionAnswererV1.ask(question="Які зміни передбачає законопроект про мобілізацію?", debug=True))
+        # response "Не можу відповісти на це питання." <- this isn't optimal. again, the question is not included
+    # Second try
+    # print(questionAnswererV1.ask(question="Як проходить день?", debug=True))
+        # response "Не можу відповісти на це питання." <- this is correct response
+    # print(questionAnswererV1.ask(question="Які зміни передбачає законопроект про мобілізацію?", debug=True))
+        # response "Не можу відповісти на це питання." <- again..., despite the question is included right - it seems
+    # print(questionAnswererV1.ask(question="Які зміни передбачає законопроект про мобілізацію?", debug=True))
+        # response "Не можу відповісти на це питання. Недостатньо конкретної інформації про законопроект про мобілізацію. Будь ласка, задайте питання, яке більш конкретно вказує на зміни, які цей законопроект передбачає. Наприклад, "Які конкретні зміни вносить законопроект про мобілізацію щодо прав військовослужбовців та поліцейських на соціальний захист?" - this is much better
