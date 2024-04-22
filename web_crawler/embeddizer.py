@@ -8,7 +8,8 @@ client = OpenAI(
 
 df = pd.read_csv('processed/shortened.csv', index_col=0)
 
-df['embeddings'] = df.text.apply(lambda x: client.embeddings.create(input=x, model='text-embedding-ada-002').data[0].embedding)
+# df['embeddings'] = df.text.apply(lambda x: client.embeddings.create(input=x, model='text-embedding-ada-002').data[0].embedding)
+df['embeddings'] = df.text.apply(lambda x: client.embeddings.create(input=x, model='text-embedding-3-small').data[0].embedding)
 
-df.to_csv('processed/embeddings.csv')
+df.to_csv('processed/embeddings_v2.csv')
 df.head()
