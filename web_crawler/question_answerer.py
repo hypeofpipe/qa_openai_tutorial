@@ -14,7 +14,7 @@ client = OpenAI(
 
 EMBEDDING_MODEL = 'text-embedding-3-small'
 GPT_MODEL = 'gpt-3.5-turbo'
-CURRENT_DIRECTORY = os.getcwd()
+CURRENT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
 class QuestionAnswererV1:
     def __init__(self):
@@ -161,12 +161,12 @@ class QuestionAnswererV2:
     ) -> str:
         """Answers a query using GPT and a dataframe of relevant texts and embeddings."""
         message = self.create_context(incoming_question=question, df=self.df, model=model, token_budget=token_budget)
-        if debug:
-            print(message)
         messages = [
             {"role": "system", "content": "Ти відповідаєш на питання відносно законопроекту про мобілізацію."},
             {"role": "user", "content": message},
         ]
+        if debug:
+            print(messages)
         response = client.chat.completions.create(
             model=model,
             messages=messages,
@@ -224,3 +224,5 @@ if __name__ == "__main__":
         # response "Не можу відповісти на це питання." <- again..., despite the question is included right - it seems
     # print(questionAnswererV1.ask(question="Які зміни передбачає законопроект про мобілізацію?", debug=True))
         # response "Не можу відповісти на це питання. Недостатньо конкретної інформації про законопроект про мобілізацію. Будь ласка, задайте питання, яке більш конкретно вказує на зміни, які цей законопроект передбачає. Наприклад, "Які конкретні зміни вносить законопроект про мобілізацію щодо прав військовослужбовців та поліцейських на соціальний захист?" - this is much better
+# V2 
+    print(questionAnswererV2.ask(question="Які зміни передбачає законопроект про мобілізацію?", debug=True))
