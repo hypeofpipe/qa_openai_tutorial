@@ -163,6 +163,7 @@ cython_debug/
 # ignore everything, except for gitignore and script itself
 web_crawler/**/*.txt
 web_crawler/**/*.csv
+!web_crawler/processed/embeddings_v2.csv.zip
 
 # VSCode settings
 .vscode/
